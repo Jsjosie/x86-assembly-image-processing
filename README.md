@@ -52,3 +52,20 @@ The square root is done using the x87 FPU (`fsqrt`).
   The image stride is hardcoded (2048), so it currently works for a specific layout
   No SIMD optimizations yet (would be a good next step)
   The threshold value is fixed
+## Usage
+
+A simple C program (`paok.c`) is included to demonstrate how the assembly functions can be used.
+
+It allocates memory buffers and calls:
+
+  `bmptogray_conversion`
+  `sobel_detection`
+
+The C code acts as a bridge between high-level logic and the low-level Assembly implementation.
+## Build & Run
+
+Example (Windows / MASM-style workflow):
+
+1. Assemble the `.asm` file  
+2. Compile the `main.c` file  
+3. Link them together  
