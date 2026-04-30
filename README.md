@@ -52,9 +52,6 @@ The square root is done using the x87 FPU (`fsqrt`).
 ### Input
 ![Input](examples/input.bmp)
 
-### Grayscale
-![Grayscale](examples/grayscale.bmp)
-
 ### Edges
 ![Edges](examples/edges.bmp)
 
