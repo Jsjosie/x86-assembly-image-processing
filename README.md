@@ -47,15 +47,6 @@ The square root is done using the x87 FPU (`fsqrt`).
   Using the x87 FPU for math
 
 
-## Results
-
-### Input
-![Input](examples/input.bmp)
-
-### Edges
-![Edges](examples/edges.bmp)
-
-
 ## Notes
 
   The image stride is hardcoded (2048), so it currently works for a specific layout
