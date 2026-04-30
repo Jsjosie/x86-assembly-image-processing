@@ -1,0 +1,176 @@
+.386
+.model flat, c
+option casemap:none
+.data
+threshold REAL8 90.0
+.code
+
+PUBLIC bmptogray_conversion  ; public so that it can be called from other modules
+
+; coverting the input RGB bmp to grayscale image
+
+; the procedure goes through each pixel of the input image and applies the formula:
+; gray = (R*77 + G*150 + B*29)/256 
+
+
+bmptogray_conversion PROC
+	push ebp
+	mov ebp, esp ;set up stack frame
+	push ebx
+	push esi
+	push edi
+	mov esi, [ebp+16]	; input base
+	mov edi, [ebp+20]	; output base
+	xor eax, eax ; y=0
+	y_loop:
+		cmp eax, dword ptr [ebp+8] ;compare y with height
+		jge y_end
+		xor ebx, ebx ;x=0
+		x_loop:
+			cmp ebx, dword ptr [ebp+12] ;compare x with width
+			jge x_end
+			mov edx, ebx
+			shl edx,11 ; edx = x*2048
+			add edx, eax
+			shl edx,2  ; edx = ((x*2048) + y) * 4 
+			movzx ecx, byte ptr [esi+edx+2] ; get R
+			imul ecx,ecx, 77
+			push eax
+			movzx eax, byte ptr [esi+edx+1] ; get G
+		    imul eax,eax, 150
+			add ecx, eax
+			movzx eax, byte ptr [esi+edx]   ; get B
+			imul eax,eax, 29
+			add ecx, eax
+			add ecx, 128;round up with 128
+			shr ecx, 8;divide by 256
+			pop eax
+			mov dword ptr [edi+edx],ecx; store gray value
+			inc ebx
+			jmp x_loop
+			x_end:
+			inc eax
+			jmp y_loop
+			y_end:
+			pop edi
+			pop esi
+			pop ebx
+			pop ebp
+			
+			ret
+			
+
+
+
+
+bmptogray_conversion ENDP
+PUBLIC sobel_detection
+
+; locals (sub esp,24)
+; [ebp-4]  gx
+; [ebp-8]  gy
+; [ebp-12] y saved
+; [ebp-16] base offset (bytes) for input int
+; [ebp-20] h1 = height-1
+; [ebp-24] w1 = width-1
+sobel_detection PROC
+    push ebp; stack frame
+    mov  ebp, esp
+    push ebx; save regs
+    push esi
+    push edi
+    sub  esp, 24; 6 locals
+    mov  esi, [ebp+16]; input_gray base (int*)
+    mov  edi, [ebp+20]; output base (uchar*)
+    mov  eax, [ebp+8]; height
+    dec  eax
+    mov  [ebp-20], eax; h1 = height-1
+    mov  eax, [ebp+12]; width
+    dec  eax
+    mov  [ebp-24], eax ; w1 = width-1
+    mov ebx,1 ; x=1
+x_loop_sobel:
+    cmp  ebx, dword ptr [ebp-24] ; x < w1 ?
+    jge  x_end_sobel
+    mov  eax, 1 ; y=1
+    y_loop_sobel:
+        cmp  eax, dword ptr [ebp-20]; y < h1 ?
+        jge  y_end_sobel
+        mov  [ebp-12], eax; save y
+        ; offset for input int: base = x*8192 + y*4
+        mov  edx, ebx; edx=x
+        shl  edx, 13; x*8192
+        mov  ecx, [ebp-12]; ecx=y
+        shl  ecx, 2; y*4
+        add  edx, ecx; base bytes
+        mov  [ebp-16], edx; save base
+        ; Gx = (topR-topL) + 2*(midR-midL) + (botR-botL) because sobel masks contain numbers between -2 and 2 so if you do the mul with 0 some terms can be excluded
+        mov  edx, [ebp-16]; base
+        mov  eax, dword ptr [esi + edx - 8192 + 4] ; topR
+        sub  eax, dword ptr [esi + edx - 8192 - 4] ; topR-topL
+        mov  ecx, dword ptr [esi + edx + 4]; midR
+        sub  ecx, dword ptr [esi + edx - 4]; midR-midL
+        shl  ecx, 1; *2
+        add  eax, ecx; add term2
+        mov  ecx, dword ptr [esi + edx + 8192 + 4] ; botR
+        sub  ecx, dword ptr [esi + edx + 8192 - 4] ; botR-botL
+        add  eax, ecx; add term3
+        mov  [ebp-4], eax; store gx
+        ; Gy = (botL+2*botM+botR) - (topL+2*topM+topR)
+        mov  edx, [ebp-16]; base again
+        ; top = topL + 2*topM + topR  (in eax)
+        mov  eax, dword ptr [esi + edx - 8192 - 4] ; topL
+        mov  ecx, dword ptr [esi + edx - 8192] ; topM
+        shl  ecx, 1; 2*topM
+        add  eax, ecx
+        mov  ecx, dword ptr [esi + edx - 8192 + 4] ; topR
+        add  eax, ecx ; eax=top
+        ; bottom = botL + 2*botM + botR  (in ecx)
+        mov  ecx, dword ptr [esi + edx + 8192 - 4]; botL
+        mov  edx, dword ptr [esi + edx + 8192] ; botM (use edx temp)
+        shl  edx, 1 ; 2*botM
+        add  ecx, edx
+        mov  edx, [ebp-16]; base again
+        mov  edx, dword ptr [esi + edx + 8192 + 4]; botR
+        add  ecx, edx; ecx=bottom
+        sub  ecx, eax; gy = bottom - top
+        mov  [ebp-8], ecx; store gy
+        ; magnitude e = sqrt(gx^2 + gy^2)  with x87
+        fild dword ptr [ebp-4]; gx
+        fmul st(0), st(0); gx^2
+        fild dword ptr [ebp-8]; gy
+        fmul st(0), st(0); gy^2
+        faddp st(1), st(0); gx^2+gy^2
+        fsqrt; e
+        ; out offset (uchar): outOff = x*2048 + y 
+        mov  ecx, ebx
+        shl  ecx, 11
+        add  ecx, dword ptr [ebp-12]
+        ; compare e with threshold  
+        fld  threshold
+        fcompp
+        fnstsw ax
+        sahf
+        jc   write_255 ; 
+    write_0:
+        mov  byte ptr [edi + ecx], 0; store black
+        jmp  after_write
+    write_255:
+        mov  byte ptr [edi + ecx], 255; store white
+    after_write:
+        mov  eax, [ebp-12]; restore y
+        inc  eax; y++
+        jmp  y_loop_sobel
+    y_end_sobel:
+        inc  ebx ; x++
+        jmp  x_loop_sobel
+x_end_sobel:
+    add  esp, 24; free locals
+    xor  eax, eax; return 0
+    pop  edi
+    pop  esi
+    pop  ebx
+    pop  ebp
+    ret
+sobel_detection ENDP
+END
